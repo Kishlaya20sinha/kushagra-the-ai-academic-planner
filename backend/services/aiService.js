@@ -57,14 +57,14 @@ exports.parseDocuments = async (files) => {
   6. The JSON must be valid and contain NO markdown formatting around it.
   `;
 
+  const uploadedFiles = [];
+  const geminiFileNames = [];
+  const localFilePaths = [];
+
   try {
     // Re-initialize to guarantee we have the API key after dotenv has fully loaded
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
-
-    const uploadedFiles = [];
-    const geminiFileNames = [];
-    const localFilePaths = [];
 
     // Upload files to Gemini using the File API
     for (const fileKey in files) {
