@@ -90,8 +90,6 @@ exports.createPlan = (parsedData) => {
         }
 
         // Available Study Blocks (Morning 5-8, Evening 18-20:30, Night 21:30-23:30)
-        // Adjust based on fest mode alert (e.g. if fest mode, maybe remove night block, for simplicity we keep them, 
-        // the prompt instructions should handle the contextual alerts independently)
         const studyBlocks = [
             { startH: 5, startM: 0, endH: 8, endM: 0 },
             { startH: 18, startM: 0, endH: 20, endM: 30 },
@@ -110,43 +108,31 @@ exports.createPlan = (parsedData) => {
             const blockEnd = new Date(currentDate);
             blockEnd.setHours(block.endH, block.endM, 0);
 
-            // Find the next task in the queue that hasn't expired by this dayOffset.
-            // If the exam is in 1 day (tomorrow), we shouldn't schedule it on dayOffset >= 1 (tomorrow or later).
-            let taskFound = false;
-            while (queueIndex < processedQueue.length) {
-                const potentialTask = processedQueue[queueIndex];
-                if (potentialTask.daysLeft > dayOffset) {
-                    taskFound = true;
-                    break;
-                } else {
-                    // This task's deadline has passed relative to the current day we are scheduling for.
-                    // Skip it and look for the next one.
-                    queueIndex++;
-                }
-            }
+            // Find the highest-priority task that still has time left on this day.
+            // Cycle round-robin through the queue so all subjects get repeated coverage
+            // rather than exhausting the list and falling back to "Self Study".
+            const eligibleTasks = processedQueue.filter(t => t.daysLeft > dayOffset);
 
-            if (taskFound) {
-                const task = processedQueue[queueIndex];
+            if (eligibleTasks.length > 0) {
+                const task = eligibleTasks[queueIndex % eligibleTasks.length];
+                queueIndex++;
 
                 calendarEvents.push({
                     title: `[${task.subject}] ${task.title}`,
                     start: blockStart,
                     end: blockEnd,
                     allDay: false,
-                    resourceColor: task.priorityScore > 10 ? '#ef4444' : (task.priorityScore > 5 ? '#f59e0b' : '#3b82f6'), // Red/Yellow/Blue
+                    resourceColor: task.priorityScore > 10 ? '#ef4444' : (task.priorityScore > 5 ? '#f59e0b' : '#3b82f6'),
                     isFixedClass: false,
                     priorityScore: task.priorityScore
                 });
-
-                queueIndex++;
             } else {
-                // If there are empty slots left, assign "Self Study / Skill Up Time"
                 calendarEvents.push({
                     title: `Self Study / Skill Up Time`,
                     start: blockStart,
                     end: blockEnd,
                     allDay: false,
-                    resourceColor: '#8b5cf6', // Purple for Self-study / Skill-up
+                    resourceColor: '#8b5cf6',
                     isFixedClass: false,
                     priorityScore: 0
                 });

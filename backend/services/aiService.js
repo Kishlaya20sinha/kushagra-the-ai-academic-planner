@@ -1,6 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { GoogleAIFileManager } = require('@google/generative-ai/server');
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -62,18 +63,22 @@ exports.parseDocuments = async (files) => {
     const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
     const uploadedFiles = [];
+    const geminiFileNames = [];
+    const localFilePaths = [];
 
     // Upload files to Gemini using the File API
     for (const fileKey in files) {
       const fileArray = files[fileKey];
       if (fileArray && fileArray.length > 0) {
         const file = fileArray[0];
+        localFilePaths.push(file.path);
         console.log(`Uploading ${file.originalname} to Gemini...`);
         const uploadResponse = await fileManager.uploadFile(file.path, {
           mimeType: file.mimetype,
           displayName: file.originalname,
         });
         console.log(`Uploaded ${file.originalname} to ${uploadResponse.file.uri}`);
+        geminiFileNames.push(uploadResponse.file.name);
         uploadedFiles.push({
           fileData: {
             mimeType: uploadResponse.file.mimeType,
@@ -85,7 +90,6 @@ exports.parseDocuments = async (files) => {
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    // Call the model with all the uploaded files + the prompt
     console.log("Analyzing contents in Gemini 2.5 Flash context window...");
     const result = await model.generateContent([
       ...uploadedFiles,
@@ -97,9 +101,40 @@ exports.parseDocuments = async (files) => {
     // Clean up Markdown code block if present
     const cleanedText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
 
-    return JSON.parse(cleanedText);
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanedText);
+    } catch (parseError) {
+      throw new Error('Gemini returned invalid JSON. Raw response: ' + cleanedText.slice(0, 300));
+    }
+
+    // Validate required top-level keys exist
+    if (!parsed.subjectSniper || !parsed.priorityQueue || !parsed.contextualAlerts) {
+      throw new Error('Gemini response is missing required fields (subjectSniper, priorityQueue, or contextualAlerts).');
+    }
+
+    return parsed;
   } catch (error) {
     console.error('Error with Gemini API:', error);
     throw new Error('AI Document Parsing failed. Details: ' + (error.message || error));
+  } finally {
+    // Always clean up local uploaded files to avoid storing sensitive PDFs on disk
+    for (const filePath of localFilePaths) {
+      try {
+        await fsPromises.unlink(filePath);
+      } catch (e) {
+        console.warn(`Could not delete local file ${filePath}:`, e.message);
+      }
+    }
+
+    // Always clean up files uploaded to Gemini to avoid hitting quota
+    for (const fileName of geminiFileNames) {
+      try {
+        await fileManager.deleteFile(fileName);
+        console.log(`Deleted Gemini file: ${fileName}`);
+      } catch (e) {
+        console.warn(`Could not delete Gemini file ${fileName}:`, e.message);
+      }
+    }
   }
 };

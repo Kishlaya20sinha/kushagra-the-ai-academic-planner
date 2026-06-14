@@ -8,7 +8,7 @@ const scheduleRoutes = require('./routes/scheduleRoutes');
 dotenv.config();
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: process.env.ALLOWED_ORIGIN || 'http://localhost:5173' }));
 app.use(express.json());
 
 // Ensure uploads directory exists
